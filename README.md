@@ -11,15 +11,15 @@ Visual Regression Testing using Cypress
 
 ![Screenshot of Visual Diff Report](./screenshots/screenshot-cypress-3.png "Visual Diff Report Example")
 
-Overview: 
+**Overview:**
 
 This document provides a high-level overview of the Visual Regression Testing framework implemented using Cypress. 
 
 The framework is designed to automate visual regression tests for different viewports and compare screenshots to detect visual differences.
 
-Components:
+**Components:**
 
-Test Configuration
+**Test Configuration**
 
    The test configuration is managed using environment variables.
    
@@ -35,21 +35,30 @@ Test Configuration
    The environment variables that are used are:
 
    BASELINE_URL: The URL of the baseline website.
+
    COMPARISON_URL: THE URL of the comparison website.
+
    HTTP_AUTH_USERNAME: baseline site have HTTP authentication username.
+
    HTTP_AUTH_PASSWORD": baseline website have HTTP authentication password.
+
    OKTA_USERNAME: comparison website OKTA username.
+
    OKTA_PASSWORD: comparison website OKTA password.
+
    OKTA_ANSWER: comparison website OKTA answer.
+
    OKTA_DOMAIN: OKTA domain name that comparison site redirects to.
+
    URLS_FILE: urls-local.json
+
    SIMILARITY_THRESHOLD: 85
 
    Envirnment variable URLS_FILE is only required for local test.
 
    If you like to add a new workflow add your workflow yml under  /.github/workflows/
 
-Viewports
+**Viewports**
 
    The tests can executed across multiple viewports to ensure responsiveness:
 
@@ -57,7 +66,7 @@ Viewports
    Tablet: { width: 768, height: 1024 }
    Mobile portrait: { width: 414, height: 896 }
 
-Test Script
+**End to End Test Script**
 
    The test script file is cypress/e2e/visual-diff.cy.js
    
@@ -68,7 +77,7 @@ Test Script
    
    The script performs visual regression testing by comparing screenshots between a baseline environment and a comparison environment to detect visual differences. It's designed to test multiple URLs across different viewport sizes.
 
-   Key Components in the script file
+   **Key Components in the script file**
    
    Test Configuration
 
@@ -234,7 +243,7 @@ Test Script
 
    For baseline: Hides headers, breadcrumbs, and sidebars that aren't part of the main content.,
 
-   Summary:
+   **Summary:**
 
    This script provides a comprehensive framework for visual regression testing that:
 
@@ -252,11 +261,11 @@ Test Script
 
    The results are used to generate visual diff reports that highlight differences between the baseline and comparison environments.
 
-   If you have a different usecase you can just clone the script and modify. 
+   If you have a different use case you can just clone the script and modify. 
    
    For example you can remove existing authentication in the script and add the code for your authentication mechanism.
 
-   Requirements
+   **Requirements**
 
    1. Clone the repository 
 
@@ -270,7 +279,7 @@ Test Script
          "postinstall": "patch-package"
       },
 
-  3. Install DDEV 
+  3. Install DDEV (Optional if you want to use Perceptual Hash Method       instead of Pixel Difference).
 
       We use a PHP library for Image Comparison so we need PHP installed so eitherv install DDEV or PHP.
 
@@ -298,9 +307,9 @@ Test Script
 
       Next time when you start Test make sure docker and DDEV is running. Just start docker and ddev.
 
-   Running Test:
+   **Running Test:**
 
-   Local Test
+   **Local Test:**
 
    1. Prepare Test Data:
 
@@ -353,7 +362,7 @@ Test Script
 
    Basline and Comparison test run differs in config file. Notice config file is specified in baseline test npx cypress run --config-file cypress.config-baseline.js  but in comparion default config is used.
 
-   Pixel Difference or Perceptual Hashing
+   **Pixel Difference or Perceptual Hashing**
 
    Some cases you want to match exact pixels for Image Comparison but in some case you don't require Pixel match but just need to check similarity.
 
@@ -361,9 +370,9 @@ Test Script
 
    If you want to use Pixel Diffence then comment line ddev exec php ./scripts/php/image-compare.php in  comparison.sh for running test locally and visual-diff-advanced-parameter-split.yml
 
-   Files under scripts/nodejs
+   **Files under scripts/nodejs**
 
-   The script file scripts/nodejs/generate-matrix-config-chunks.js are used for mafrix configurate in GitHub workflow.  i.e in the matrix step it will create number of urls file for each runner in the format urls-1.json, urls-2.json etc based on value set in below code.
+   The script file scripts/nodejs/generate-matrix-config-chunks.js are used for mafrix configuration in GitHub workflow.  i.e in the matrix step it will create number of urls file for each runner in the format urls-1.json, urls-2.json etc based on value set in below code.
 
    const numFiles = 50; 
 
@@ -371,13 +380,13 @@ Test Script
 
    const urlsPerFile = 30;
    
-   The script file scripts/nodejs/visual-diff-merge.js are used in GitHub workflow yml visual-diff-advanced-parameter-split.yml for matrix generation and merging reports generated in runneres to one json file so we can generate the dashboard using a single json report.
+   The script file scripts/nodejs/-merge.js are used in GitHub workflow yml visual-diff-advanced-parameter-split.yml for merging reports generated in runners to single json file so we can generate the dashboard using a single json report.
 
-   scripts/nodejs/generate-matrix-config-chunks.js and scripts/nodejs/visual-diff-merge.js are not required to run test locally since we are not running parallel tests in  local.
+   scripts/nodejs/generate-matrix-config-chunks.js and scripts/nodejs/merge.js are not required to run test locally since we are not running parallel tests in  local. But we use scripts/nodejs/merge.js in local just for generating the merge.json file which is used for reporting.
 
    The scripts under scripts/nodejs/add-ons are not required for running Test or Reports. See the nodejs script document for the usage of each script.
 
-   GitHub workflow yml file visual-diff-advanced-parameter-split.yml
+   **GitHub Workflow visual-diff-advanced-parameter-split.yml**
 
    This GitHub Actions workflow file is designed for visual regression testing with Cypress, allowing for two types of runs: baseline and comparison.
 
@@ -385,7 +394,7 @@ Test Script
 
    You can also upload artifacts to GitHub pages or any other storage. You could use an action https://github.com/actions/deploy-pages for pushing atifacts to GitHub Pages if you like.
 
-   Key Features
+   **Key Features**
 
    Manual Trigger with Parameters:
 
@@ -467,7 +476,7 @@ Test Script
    regression testing in a CI/CD pipeline, with proper separation of baseline and comparison phases, parallel execution for efficiency, and secure credential handling.
 
 
-Explanation of patches/cypress-image-diff-html-report+2.2.0.patch
+**Explanation of patches/cypress-image-diff-html-report+2.2.0.patch**
 
 This patch modifies the cypress-image-diff-html-report package (version 2.2.0) to enhance its functionality in several ways. 
 
@@ -491,6 +500,7 @@ function getNormalisedPath(pathname, config, mode) {
 }
 
 Added support for external URLs: The patch adds a check for URLs that start with "http" and returns them directly without modification. This allows the report to reference external images directly.
+
 Improved code formatting: The patch also cleans up the formatting with consistent spacing.
 
 2. Pagination in Report Generation (core.js)
@@ -503,7 +513,9 @@ export function generate(inlineConfig) {
 +        var config, json, itemsPerPage, totalPages, i, startIndex, endIndex, pageJson, html, navigationLinks, target, err_1;
 
 Pagination implementation: Instead of generating a single large HTML report, the patch modifies the code to split the report into multiple pages with a configurable number of tests per page (set to 50).
+
 Page-specific JSON: For each page, it creates a subset of the test data containing only the tests for that page.
+
 Navigation links: Adds navigation links at the bottom of each page to allow users to navigate between pages.
 
 3. UI Enhancements (index.html)
@@ -519,10 +531,12 @@ Navigation links: Adds navigation links at the bottom of each page to allow user
 +    </script>
 
 Lazy loading for images: Adds the loading="lazy" attribute to all images in the report, which improves performance by only loading images when they come into the viewport.
+
 Custom title: Changes the report title to "Visual Regression Report".
 Hide header image: Adds CSS to hide the header image.
 
 Purpose of the Patch
+
 Based on the changes, this patch addresses several key issues:
 
 Performance improvements for large reports: By implementing pagination and lazy loading of images, the patch makes the report more efficient for large test suites with many screenshots.
@@ -544,33 +558,44 @@ Uses Terraform Backend to store the state file in an S3 bucket.
 It's using AWS Account:
 
 aws technologies:
+
 **S3**, **CloudFront**
 
 Configuration That Needs to Be Updated
+
 AWS Region:
 
 Currently hardcoded to ap-southeast-2 in main.tf
+
 Consider moving to variables.tf for flexibility
+
 S3 Bucket Names:
 
 Both website bucket and state bucket use project_name variable
+
 Ensure uniqueness if deploying to different environments
+
 CloudFront Configuration:
 
 Using default CloudFront certificate
+
 Consider adding custom certificate for production
+
 Force Destroy Settings:
 
 Both buckets have force_destroy = false
+
 May need to be true for test environments
+
 Tags:
 
 Default tags contain placeholder information
+
 Update with actual project details
 
 Also refer .github/workflows/visual-diff-advanced-parameter-split.yml for more details how Terraform is used for hosting the report to Am Amazon s3.
 
-Environment variables secrets for S3 Terraform needs to be updated ibn github/workflows/visual-diff-advanced-parameter-split.yml if using S3 to serve the report. 
+Environment variables secrets for S3 Terraform needs to be updated in github/workflows/visual-diff-advanced-parameter-split.yml if using S3 to serve the report. 
 
 
 
