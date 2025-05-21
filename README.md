@@ -28,7 +28,7 @@ The framework is designed to automate visual regression tests for different view
 
         npm install --include-dev
 
-   3. Update baseurls for comparison and baseline in files 
+   3. Update base urls for comparison and baseline in files 
         cypress.config.js, 
         cypress.config-baseline.js and 
         cypress.config-baseline.js
