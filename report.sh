@@ -15,7 +15,7 @@ node scripts/nodejs/merge.js
 
 ## Compare Images using Perceptual hashing
 ## For Pixel difference comment below line
-ddev exec php ./scripts/php/image-compare.php
+#ddev exec php ./scripts/php/image-compare.php
 
 ## Generate Visual Diff Report
 npx cypress-image-diff-html-report generate --configFile cypress-image-diff.config.cjs --reportJsonFilePath ./public/visual-diff/merge/index.json --outputDir ./public/visual-diff

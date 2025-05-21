@@ -43,6 +43,8 @@ The framework is designed to automate visual regression tests for different view
 
         RUN ./report.sh
 
+**See Below for Detailed Documentation**
+
 **Components:**
 
 **Test Configuration**
@@ -305,7 +307,7 @@ For example you can remove existing authentication in the script and add the cod
         "postinstall": "patch-package"
     },
 
-3. Install DDEV (Optional if you want to use Perceptual Hash Method       instead of Pixel Difference).
+3. OPTIONAL: Install DDEV if you want to use Perceptual Hash Method       instead of Pixel Difference).
 
     We use a PHP library for Image Comparison so we need PHP installed so eitherv install DDEV or PHP.
 
@@ -392,9 +394,11 @@ Basline and Comparison test run differs in config file. Notice config file is sp
 
 Some cases you want to match exact pixels for Image Comparison but in some case you don't require Pixel match but just need to check similarity.
 
-In this test we don't want to use Pixel difference and instead use Perceptual hashing method so we overwrite the values for image similarity in the generated reports json created by cypress-image-diff https://www.npmjs.com/package/cypress-image-diff-js/v/1.22.0 using script image-compare.php which uses Perceptual hashing library from https://github.com/sapientpro/image-comparator
+In this test we use Pixel difference and instead use Perceptual hashing method.
 
-If you want to use Pixel Diffence then comment line ddev exec php ./scripts/php/image-compare.php in  comparison.sh for running test locally and visual-diff-advanced-parameter-split.yml
+If you want to use Perceptual hashing method then uncomment line ddev exec php ./scripts/php/image-compare.php in report.sh for running test locally and visual-diff-advanced-parameter-split.yml
+
+ For image similality using Perceptual hashing the values for image similarity are overwritten in the generated reports json created by cypress-image-diff https://www.npmjs.com/package/cypress-image-diff-js/v/1.22.0 using script image-compare.php which uses Perceptual hashing library from https://github.com/sapientpro/image-comparator and then final report is generated.
 
 **Files under scripts/nodejs**
 
@@ -502,68 +506,7 @@ This workflow represents a sophisticated implementation of visual
 regression testing in a CI/CD pipeline, with proper separation of baseline and comparison phases, parallel execution for efficiency, and secure credential handling.
 
 
-**Explanation of patches/cypress-image-diff-html-report+2.2.0.patch**
-
-This patch modifies the cypress-image-diff-html-report package (version 2.2.0) to enhance its functionality in several ways. 
-
-The key changes are:
-
-1. URL Handling in utils.js
-
-function getNormalisedPath(pathname, config, mode) {
--    if (pathname === '')
--        return '';
-+    if (pathname === '') return '';
-+
-+    if (pathname.startsWith('http'))
-+        return pathname;
-+
-     if (mode === 'local')
-         return path.join(config.baseDir, pathname);
-+
-     var absolutePath = path.join(process.cwd(), config.baseDir, pathname);
-     return path.relative(config.outputDir, absolutePath);
-}
-
-Added support for external URLs: The patch adds a check for URLs that start with "http" and returns them directly without modification. This allows the report to reference external images directly.
-
-Improved code formatting: The patch also cleans up the formatting with consistent spacing.
-
-2. Pagination in Report Generation (core.js)
-
-The most significant change is the implementation of pagination for large reports:
-
-export function generate(inlineConfig) {
-    return __awaiter(this, void 0, void 0, function () {
--        var config, json, html, target, err_1;
-+        var config, json, itemsPerPage, totalPages, i, startIndex, endIndex, pageJson, html, navigationLinks, target, err_1;
-
-Pagination implementation: Instead of generating a single large HTML report, the patch modifies the code to split the report into multiple pages with a configurable number of tests per page (set to 50).
-
-Page-specific JSON: For each page, it creates a subset of the test data containing only the tests for that page.
-
-Navigation links: Adds navigation links at the bottom of each page to allow users to navigate between pages.
-
-3. UI Enhancements (index.html)
-
-+    <script>
-+        document.addEventListener("DOMContentLoaded", function() {
-+            const images = document.querySelectorAll('img');
-+            images.forEach(img => {
-+                img.setAttribute('loading', 'lazy');
-+            });
-+            document.querySelector('header h1').textContent = 'Visual Regression Report';
-+        });
-+    </script>
-
-Lazy loading for images: Adds the loading="lazy" attribute to all images in the report, which improves performance by only loading images when they come into the viewport.
-
-Custom title: Changes the report title to "Visual Regression Report".
-Hide header image: Adds CSS to hide the header image.
-
-Purpose of the Patch
-
-Based on the changes, this patch addresses several key issues:
+**Purpose of patches/cypress-image-diff-html-report+2.2.0.patch**
 
 Performance improvements for large reports: By implementing pagination and lazy loading of images, the patch makes the report more efficient for large test suites with many screenshots.
 
@@ -575,7 +518,7 @@ Better navigation: The addition of pagination with navigation links makes it eas
 
 These changes are particularly important for visual regression testing with many screenshots, as they make the reports more manageable and performant, especially when dealing with large numbers of test cases.
 
-# Terraform Code for hosting Cypress Report
+# OPTIONAL: Terraform Code for hosting Cypress Report
 
 Created S3 Bucket and configured it to host a static website.
 
