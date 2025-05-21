@@ -1,0 +1,172 @@
+diff --git a/node_modules/cypress-image-diff-html-report/dist/common/utils.js b/node_modules/cypress-image-diff-html-report/dist/common/utils.js
+index 8adbf82..7a363ed 100644
+--- a/node_modules/cypress-image-diff-html-report/dist/common/utils.js
++++ b/node_modules/cypress-image-diff-html-report/dist/common/utils.js
+@@ -208,17 +208,23 @@ function getResolvedScreenshotPath(pathname, config, mode) {
+                 case 0:
+                     if (!(config.inlineAssets && mode === 'static')) return [3 /*break*/, 2];
+                     return [4 /*yield*/, toBase64(pathname, config)];
+-                case 1: return [2 /*return*/, _a.sent()];
+-                case 2: return [2 /*return*/, getNormalisedPath(pathname, config, mode)];
++                case 1:
++                    return [2 /*return*/, _a.sent()];
++                case 2:
++                    return [2 /*return*/, getNormalisedPath(pathname, config, mode)];
+             }
+         });
+     });
+ }
+ function getNormalisedPath(pathname, config, mode) {
+-    if (pathname === '')
+-        return '';
++    if (pathname === '') return '';
++
++    if (pathname.startsWith('http'))
++        return pathname;
++
+     if (mode === 'local')
+         return path.join(config.baseDir, pathname);
++
+     var absolutePath = path.join(process.cwd(), config.baseDir, pathname);
+     return path.relative(config.outputDir, absolutePath);
+ }
+diff --git a/node_modules/cypress-image-diff-html-report/dist/core.js b/node_modules/cypress-image-diff-html-report/dist/core.js
+index f7b5f7c..14a1ef6 100644
+--- a/node_modules/cypress-image-diff-html-report/dist/core.js
++++ b/node_modules/cypress-image-diff-html-report/dist/core.js
+@@ -38,9 +38,10 @@ import fs from 'fs-extra';
+ import path from 'path';
+ import { getResolvedConfig, getReportHtmlAfterPopulatingData, getResolvedReportJson } from './common/utils.js';
+ import { App } from './local-server/index.js';
++
+ export function generate(inlineConfig) {
+     return __awaiter(this, void 0, void 0, function () {
+-        var config, json, html, target, err_1;
++        var config, json, itemsPerPage, totalPages, i, startIndex, endIndex, pageJson, html, navigationLinks, target, err_1;
+         return __generator(this, function (_a) {
+             switch (_a.label) {
+                 case 0: return [4 /*yield*/, getResolvedConfig(inlineConfig)];
+@@ -49,37 +50,87 @@ export function generate(inlineConfig) {
+                     return [4 /*yield*/, getResolvedReportJson(config, 'static')];
+                 case 2:
+                     json = _a.sent();
+-                    return [4 /*yield*/, getReportHtmlAfterPopulatingData(json)];
++                    itemsPerPage = 50;
++                    totalPages = Math.ceil(json.suites[0].tests.length / itemsPerPage);
++                    _a.label = 3;
+                 case 3:
+-                    html = _a.sent();
++                    _a.trys.push([3, 9, , 10]);
++                    i = 0;
+                     _a.label = 4;
+                 case 4:
+-                    _a.trys.push([4, 7, , 8]);
+-                    target = path.join(process.cwd(), config.outputDir, 'index.html');
+-                    return [4 /*yield*/, fs.ensureFile(target)];
++                    if (!(i < totalPages)) return [3 /*break*/, 8];
++                    startIndex = i * itemsPerPage;
++                    endIndex = Math.min((i + 1) * itemsPerPage, json.suites[0].tests.length);
++                    pageJson = {
++                        ...json,
++                        suites: [{
++                            ...json.suites[0],
++                            tests: json.suites[0].tests.slice(startIndex, endIndex)
++                        }]
++                    };
++                    pageJson.totalPassed = pageJson.suites[0].tests.filter(test => test.status === 'pass').length;
++                    pageJson.totalFailed = pageJson.suites[0].tests.filter(test => test.status === 'fail').length;
++                    pageJson.totalTests = pageJson.suites[0].tests.length;
++                    return [4 /*yield*/, getReportHtmlAfterPopulatingData(pageJson)];
+                 case 5:
+-                    _a.sent();
+-                    return [4 /*yield*/, fs.writeFile(target, html)];
++                    html = _a.sent();
++                    navigationLinks = createNavigationLinks(i, totalPages);
++                    html = html.replace('</body>', navigationLinks + '</body>');
++                    html = html.replace('window.__injectedData__={"mode":"local"}', `window.__injectedData__=${JSON.stringify({report: pageJson, mode: "static"})}`);
++                    target = path.join(process.cwd(), config.outputDir, i === 0 ? 'index.html' : `index${i + 1}.html`);
++                    return [4 /*yield*/, fs.ensureFile(target)];
+                 case 6:
+                     _a.sent();
+-                    return [3 /*break*/, 8];
++                    return [4 /*yield*/, fs.writeFile(target, html)];
+                 case 7:
++                    _a.sent();
++                    i++;
++                    return [3 /*break*/, 4];
++                case 8: return [3 /*break*/, 10];
++                case 9:
+                     err_1 = _a.sent();
++                    console.error('Error in generate function:', err_1);
+                     throw Error(err_1.message);
+-                case 8: return [2 /*return*/];
++                case 10: return [2 /*return*/];
+             }
+         });
+     });
+ }
++
++function createNavigationLinks(currentPage, totalPages) {
++    let links = '<div style="text-align: center; margin-top: 20px;">';
++    if (currentPage > 0) {
++        links += `<a href="${currentPage === 1 ? 'index.html' : 'index' + currentPage + '.html'}">Previous</a> `;
++    }
++    for (let i = 0; i < totalPages; i++) {
++        if (i === currentPage) {
++            links += `<strong>${i + 1}</strong> `;
++        } else {
++            links += `<a href="${i === 0 ? 'index.html' : 'index' + (i + 1) + '.html'}">${i + 1}</a> `;
++        }
++    }
++    if (currentPage < totalPages - 1) {
++        links += `<a href="index${currentPage + 2}.html">Next</a>`;
++    }
++    links += '</div>';
++    return links;
++}
++
++
+ export function startServer(inlineConfig) {
+     return __awaiter(this, void 0, void 0, function () {
+-        var config, app;
++        var config, json, itemsPerPage, totalPages, app;
+         return __generator(this, function (_a) {
+             switch (_a.label) {
+                 case 0: return [4 /*yield*/, getResolvedConfig(inlineConfig)];
+                 case 1:
+                     config = _a.sent();
+-                    app = new App(config);
++                    return [4 /*yield*/, getResolvedReportJson(config, 'dynamic')];
++                case 2:
++                    json = _a.sent();
++                    itemsPerPage = 50;
++                    totalPages = Math.ceil(json.suites[0].tests.length / itemsPerPage);
++                    app = new App(config, json, itemsPerPage, totalPages);
+                     return [2 /*return*/, app.listen()];
+             }
+         });
+diff --git a/node_modules/cypress-image-diff-html-report/dist/ui/index.html b/node_modules/cypress-image-diff-html-report/dist/ui/index.html
+index 2bf6402..3bbcda6 100644
+--- a/node_modules/cypress-image-diff-html-report/dist/ui/index.html
++++ b/node_modules/cypress-image-diff-html-report/dist/ui/index.html
+@@ -63,6 +63,20 @@ var Dv=(e,t)=>()=>(t||e((t={exports:{}}).exports,t),t.exports);var B5=Dv((Lt,Nt)
+   </head>
+   <body>
+     <div id="app"></div>
++    <script>
++        document.addEventListener("DOMContentLoaded", function() {
++            const images = document.querySelectorAll('img');
++            images.forEach(img => {
++                img.setAttribute('loading', 'lazy');
++            });
++            document.querySelector('header h1').textContent = 'Visual Regression Report';
++        });
++    </script>
+     
+   </body>
++  <style>
++      header img {
++          display: none;
++      }
++  </style>
+ </html>

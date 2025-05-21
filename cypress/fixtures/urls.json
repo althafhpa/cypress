@@ -1,0 +1,26 @@
+[
+  {
+    "comparison": "/",
+    "baseline": "/",
+    "id": 1,
+    "device": "desktop",
+    "width": 1000,
+    "height": 800
+  },
+  {
+    "comparison": "/about",
+    "baseline": "/about",
+    "id": 2,
+    "device": "desktop",
+    "width": 1000,
+    "height": 800
+  },
+  {
+   "comparison": "/faq",
+    "baseline": "/about/faq",
+    "id": 3,
+    "device": "desktop",
+    "width": 1000,
+    "height": 800
+  }
+]

@@ -1,0 +1,265 @@
+name: Visual Test Combined Run
+
+on:
+  workflow_dispatch:
+
+env:
+  AWS_DEVSECOPS_NONPROD_ASSUME_ROLE: "arn:aws:iam::1111111:role/cypress-automation_nonprod_access"
+  AWS_REGION: "ap-southeast-2"
+  AWS_NONPROD_ASSUME_ROLE: "arn:aws:iam::111111:role/cypress-automation_nonprod_git_pipeline"
+  USER_S3_BUCKET_NAME: "cypress-automation-bucket"
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  create-urls-json:
+    name: Split URLs to Chunks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: node ./scripts/nodejs/generate-matrix-config-chunks.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: urls-json
+          path: ./cypress/fixtures/urls
+          overwrite: true
+          retention-days: 1
+          if-no-files-found: error
+
+  configure:
+    name: Set Matrix
+    needs: create-urls-json
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/download-artifact@v4
+        with:
+          path: ./cypress/fixtures/urls
+          merge-multiple: true
+      - id: set-matrix
+        run: echo "matrix=$(jq -c . < ./cypress/fixtures/urls/config.json)" >> $GITHUB_OUTPUT
+
+  cypress-run:
+    name: Run Cypress Visual Test
+    needs: configure
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    container:
+      image: cypress/browsers:latest
+      options: --user 1001
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.configure.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        if: ${{ !cancelled() }}
+
+      - name: Download URLS JSON
+        uses: actions/download-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          path: ./cypress/fixtures/urls
+          merge-multiple: true
+
+      - name: Display structure of downloaded files
+        if: ${{ !cancelled() }}
+        run: ls -R ./cypress/fixtures/urls
+
+      - name: Set XDG_RUNTIME_DIR
+        run: |
+          export XDG_RUNTIME_DIR=/tmp/runtime-$USER
+          mkdir -p $XDG_RUNTIME_DIR
+          chmod 0700 $XDG_RUNTIME_DIR
+
+      - name: Run Test Spec visual-diff.cy.js baseline
+        id: cypress_baseline
+        uses: cypress-io/github-action@v6
+        timeout-minutes: 20
+        continue-on-error: true
+        with:
+          browser: chrome
+          spec: cypress/e2e/visual-diff.cy.js
+          config-file: cypress.config-baseline.js
+          env: |
+            URLS_FILE=${{ matrix.urls_file }}
+            RUN_TYPE=baseline
+
+      - name: Delete baseline dirs not required
+        run: |
+          rm -rf ./public/visual-diff/screenshots/comparison/*          
+          rm -rf ./public/visual-diff/json/*
+
+      - name: Run Test Spec visual-diff.cy.js comparison
+        uses: cypress-io/github-action@v6
+        timeout-minutes: 30 # Add timeout
+        continue-on-error: true  # Allow continuing even if stuck
+        with:
+          browser: chrome
+          spec: cypress/e2e/visual-diff.cy.js
+          env: |
+            URLS_FILE=${{ matrix.urls_file }}
+            RUN_TYPE=comparison
+
+      - name: Get json filename
+        id: json_filename
+        if: ${{ !cancelled() }}
+        run: |
+          filename="${{ matrix.urls_file }}"
+          file_name=$(basename "$filename" .json)
+          echo "Extracted filename: $file_name"
+          echo "::set-output name=filename::$file_name"
+
+      - name: Move reports to reports-runner directory # Will use public folder later for downloading artifacts into.
+        run: |
+          mkdir -p ./reports-runner/${{ steps.json_filename.outputs.filename }}
+          mv -v ./public/* ./reports-runner/${{ steps.json_filename.outputs.filename }}
+          chown -R $USER:$USER ./reports-runner/${{ steps.json_filename.outputs.filename }}
+
+      - name: Append filename to JSON files
+        run: |
+          filename_number=${{ steps.json_filename.outputs.filename }} # This will be 'urls-1'
+          number=${filename_number##*-} # This extracts '1'
+          mv ./reports-runner/${{ steps.json_filename.outputs.filename }}/visual-diff/json/report.json ./reports-runner/${{ steps.json_filename.outputs.filename }}/visual-diff/json/report-${number}.json
+
+      - name: Display structure of reports-runner-${{ steps.json_filename.outputs.filename }}
+        if: ${{ !cancelled() }}
+        run: ls -R ./reports-runner/${{ steps.json_filename.outputs.filename }}
+
+      - name: Upload Test files
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-runner-${{ steps.json_filename.outputs.filename }}
+          path: ./reports-runner/${{ steps.json_filename.outputs.filename }}
+          overwrite: true
+          retention-days: 5
+          if-no-files-found: error
+
+  generate-reports:
+    name: Generate Reports
+    if: always()
+    needs: cypress-run
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+
+      - name: Install Composer Dependencies
+        run: composer install
+
+      - name: Cache Node modules
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Cache Cypress binary
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/Cypress
+          key: ${{ runner.os }}-cypress-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cypress-
+
+      - name: Install build dependencies
+        run: |
+          sudo rm /var/lib/apt/lists/lock
+          sudo rm /var/cache/apt/pkgcache.bin
+          sudo rm /var/cache/apt/srcpkgcache.bin
+          sudo apt-get clean
+          sudo apt-get update
+          sudo apt-get install -y make g++ build-essential
+
+      - name: Install Node dependencies
+        run: |
+          npm ci --include=dev
+
+      - name: Download all Test files
+        uses: actions/download-artifact@v4
+        with:
+          path: ./public
+          pattern: reports-runner-*
+          merge-multiple: true
+
+      - name: Display structure of downloaded files
+        run: ls -R ./public
+
+      - name: Merge Visual Diff JSON
+        run: node ./scripts/nodejs/visual-diff-merge.js
+
+      - name: Compare Images
+        run: php ./scripts/php/image-compare.php
+
+      - name: Compare Images
+        run: npx cypress-image-diff-html-report generate --configFile cypress-image-diff.config.cjs --reportJsonFilePath ./public/visual-diff/merge/index.json --outputDir ./public/visual-diff
+
+      - name: Upload Final Report to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-report
+          path: ./public
+          overwrite: true
+          retention-days: 1
+          if-no-files-found: error
+
+  upload-to-s3:
+    name: Upload Reports to S3
+    needs: generate-reports
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: ./public
+          merge-multiple: true
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      - run: npm install aws-sdk
+      - run: |
+          echo "AWS_DEVSECOPS_ASSUME_ROLE=${{ env.AWS_DEVSECOPS_NONPROD_ASSUME_ROLE }}" >> $GITHUB_ENV
+          echo "AWS_ASSUME_ROLE=${{ env.AWS_NONPROD_ASSUME_ROLE }}" >> $GITHUB_ENV
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEVSECOPS_ASSUME_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: false
+      - env:
+          assume_role_arn: ${{env.AWS_NONPROD_ASSUME_ROLE}}
+        run: |
+          export $(printf "AWS_ACCESS_KEY_ID_1=%s AWS_SECRET_ACCESS_KEY_1=%s AWS_SESSION_TOKEN_1=%s" \
+          $(aws sts assume-role --role-arn $assume_role_arn --role-session-name MySessionName \
+          --query "Credentials.[AccessKeyId,SecretAccessKey,SessionToken]" --output text))
+          echo "::add-mask::$AWS_ACCESS_KEY_ID_1"
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID_1" >> $GITHUB_ENV
+          echo "::add-mask::$AWS_SECRET_ACCESS_KEY_1"
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY_1" >> $GITHUB_ENV
+          echo "::add-mask::$AWS_SESSION_TOKEN_1"
+          echo "AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN_1" >> $GITHUB_ENV
+      - id: folder-name
+        run: |
+          UNIQUE_NAME=${{ github.run_id }}
+          echo "name=$UNIQUE_NAME" >> $GITHUB_OUTPUT
+      - run: |
+          aws s3 cp ./public s3://${USER_S3_BUCKET_NAME}/${{ steps.folder-name.outputs.name }} --recursive
+          echo "S3_URL=s3://${USER_S3_BUCKET_NAME}/${{ steps.folder-name.outputs.name }}" >> $GITHUB_ENV
+      - run: |
+          echo "Reports uploaded successfully to: ${{ env.S3_URL }}"
+          echo "Public URL: https://${USER_S3_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/${{ steps.folder-name.outputs.name }}/visual-diff/index.html"

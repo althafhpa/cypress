@@ -1,0 +1,408 @@
+name: Visual Diff Merge Missed Runs
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_type:
+        description: 'Type of run (baseline or comparison)'
+        required: true
+        type: choice
+        options:
+          - baseline
+          - comparison
+      baseline_run_id:
+        description: 'Baseline GitHub run ID to compare against'
+        required: false
+        type: string
+      urls_files:
+        description: 'Comma-separated list of URLs files to process (e.g., urls-8.json,urls-40.json)'
+        required: true
+        type: string
+      previous_run_ids:
+        description: 'Comma-separated list of previous Comparison run IDs to merge reports from'
+        required: false
+        type: string
+
+env:
+  AWS_DEVSECOPS_NONPROD_ASSUME_ROLE: "arn:aws:iam::111111:role/cypress-automation_nonprod_access"
+  AWS_REGION: "ap-southeast-2"
+  AWS_NONPROD_ASSUME_ROLE: "arn:aws:iam::609576312521:role/cypress-automation_nonprod_git_pipeline"
+  USER_S3_BUCKET_NAME: "cypress-automation-bucket"
+
+# These permissions are needed to interact with GitHub's OIDC Token endpoint.
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate-inputs:
+    name: Validate Inputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate Inputs
+        if: ${{ github.event.inputs.run_type == 'comparison' && github.event.inputs.baseline_run_id == '' }}
+        run: |
+          echo "Baseline run ID is required for comparison runs"
+          exit 1
+
+  create-urls-json:
+    name: Split URLs to Chunks
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set ACTIONS_RUNTIME_TOKEN
+        run: echo $ACTIONS_RUNTIME_TOKEN
+        env:
+          ACTIONS_RUNTIME_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate config with urls
+        run: node ./scripts/nodejs/generate-matrix-config-chunks.js
+
+      - name: Upload url chunks and config.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: urls-json
+          path: ./cypress/fixtures/urls
+          overwrite: true
+          retention-days: 1
+          if-no-files-found: error
+
+  configure:
+    name: Set Matrix
+    needs: create-urls-json
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout to repository
+        uses: actions/checkout@v3
+
+      - name: Download config
+        uses: actions/download-artifact@v4
+        with:
+          path: ./cypress/fixtures/urls
+          merge-multiple: true
+
+      - name: Set matrix data
+        id: set-matrix
+        run: |
+          IFS=',' read -ra URL_FILES <<< "${{ inputs.urls_files }}"
+          matrix_json="{\"urls_file\": [$(printf '"%s",' "${URL_FILES[@]}" | sed 's/,$/\n/')]}"
+          echo "matrix=$matrix_json" >> $GITHUB_OUTPUT
+  
+
+  cypress-run:
+    name: Run Cypress Tests
+    needs: configure
+    runs-on: ubuntu-latest
+    container:
+      image: cypress/browsers:latest
+      options: --user 1001
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.configure.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        if: ${{ !cancelled() }}
+
+      - name: Install adm-zip
+        run: npm install adm-zip glob
+
+      - name: Install axios
+        run: npm install axios yargs
+
+      - name: Download URLS JSON
+        uses: actions/download-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          path: ./cypress/fixtures/urls
+          merge-multiple: true
+
+      - name: Display structure of downloaded files
+        if: ${{ !cancelled() }}
+        run: ls -R ./cypress/fixtures/urls
+
+      - name: Set XDG_RUNTIME_DIR
+        run: |
+          export XDG_RUNTIME_DIR=/tmp/runtime-$USER
+          mkdir -p $XDG_RUNTIME_DIR
+          chmod 0700 $XDG_RUNTIME_DIR
+
+      - name: Run Test Spec visual-diff.cy.js baseline
+        id: cypress_baseline
+        if: ${{ !cancelled() && inputs.run_type == 'baseline' }}
+        uses: cypress-io/github-action@v6
+        timeout-minutes: 20
+        continue-on-error: true
+        with:
+          browser: chrome
+          spec: cypress/e2e/visual-diff.cy.js
+          config-file: cypress.config-baseline.js
+          env: |
+            URLS_FILE=${{ matrix.urls_file }}
+            RUN_TYPE=${{ inputs.run_type }}
+
+      - name: Clear cache if retry needed
+        if: ${{ steps.cypress_baseline.outcome == 'failure' && inputs.run_type == 'baseline' }}
+        run: |
+          killall chrome || true
+          killall Cypress || true
+          npx cypress cache clear
+
+      - name: Retry baseline
+        if: ${{ steps.cypress_baseline.outcome == 'failure' && inputs.run_type == 'baseline' }}
+        uses: cypress-io/github-action@v6
+        with:
+          browser: chrome
+          spec: cypress/e2e/visual-diff.cy.js
+          config-file: cypress.config-baseline.js
+          env: |
+            URLS_FILE=${{ matrix.urls_file }}
+            RUN_TYPE=${{ inputs.run_type }}
+
+      - name: Download artifacts from baseline run
+        if: ${{ !cancelled() && inputs.run_type == 'comparison' }}
+        run: node ./scripts/nodejs/download-artifacts.js --baseline-run-id ${{ inputs.baseline_run_id }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+
+      - name: Extract artifacts
+        if: ${{ !cancelled() && inputs.run_type == 'comparison' }}
+        run: node ./scripts/nodejs/artifacts-extract.js
+
+      - name: Merge artifacts
+        if: ${{ !cancelled() && inputs.run_type == 'comparison' }}
+        run: node ./scripts/nodejs/artifacts-merge.js
+
+      - name: Verify merge paths
+        if: ${{ !cancelled() && inputs.run_type == 'comparison' }}
+        run: |
+          ls -la ./public/visual-diff/
+          pwd
+          find . -type f -name "*.json"
+
+      - name: Run Test Spec visual-diff.cy.js comparison
+        uses: cypress-io/github-action@v6
+        timeout-minutes: 10  # Add timeout
+        continue-on-error: true  # Allow continuing even if stuck
+        if: ${{ !cancelled() && inputs.run_type == 'comparison' }}
+        with:
+          browser: chrome
+          spec: cypress/e2e/visual-diff.cy.js
+          env: |
+            URLS_FILE=${{ matrix.urls_file }}
+            RUN_TYPE=${{ inputs.run_type }}
+
+      - name: Clear cache if retry needed
+        if: ${{ steps.cypress_baseline.outcome == 'failure' && inputs.run_type == 'baseline' }}
+        run: |
+          killall chrome || true
+          killall Cypress || true
+          npx cypress cache clear
+
+      - name: Retry Comparison
+        if: ${{ steps.cypress_run.outcome == 'failure' && inputs.run_type == 'comparison' }}
+        uses: cypress-io/github-action@v6
+        with:
+          browser: chrome
+          spec: cypress/e2e/visual-diff.cy.js
+          env: |
+            URLS_FILE=${{ matrix.urls_file }}
+            RUN_TYPE=${{ inputs.run_type }}
+
+      - name: Get json filename
+        id: json_filename
+        if: ${{ !cancelled() }}
+        run: |
+          filename="${{ matrix.urls_file }}"
+          file_name=$(basename "$filename" .json)
+          echo "Extracted filename: $file_name"
+          echo "::set-output name=filename::$file_name"
+
+      - name: Move reports to reports-runner directory # Will use public folder later for downloading artifacts into.
+        run: |
+          mkdir -p ./reports-runner/${{ steps.json_filename.outputs.filename }}
+          mv -v ./public/* ./reports-runner/${{ steps.json_filename.outputs.filename }}
+          chown -R $USER:$USER ./reports-runner/${{ steps.json_filename.outputs.filename }}
+
+      - name: Append filename to JSON files
+        run: |
+          filename_number=${{ steps.json_filename.outputs.filename }} # This will be 'urls-1'
+          number=${filename_number##*-} # This extracts '1'
+          mv ./reports-runner/${{ steps.json_filename.outputs.filename }}/visual-diff/json/report.json ./reports-runner/${{ steps.json_filename.outputs.filename }}/visual-diff/json/report-${number}.json
+
+      - name: Upload Test files
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports-runner-${{ steps.json_filename.outputs.filename }}
+          path: ./reports-runner/${{ steps.json_filename.outputs.filename }}
+          overwrite: true
+          retention-days: 5
+          if-no-files-found: error
+
+  generate-reports:
+    name: Generate Reports
+    needs: cypress-run
+    if: ${{ always() && inputs.run_type == 'comparison' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+
+      - name: Install Composer Dependencies
+        run: composer install
+
+      - name: Cache Node modules
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Cache Cypress binary
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/Cypress
+          key: ${{ runner.os }}-cypress-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-cypress-
+
+      - name: Install build dependencies
+        run: |
+          sudo rm /var/lib/apt/lists/lock
+          sudo rm /var/cache/apt/pkgcache.bin
+          sudo rm /var/cache/apt/srcpkgcache.bin
+          sudo apt-get clean
+          sudo apt-get update
+          sudo apt-get install -y make g++ build-essential
+
+      - name: Install Node dependencies
+        run: |
+          npm ci --include=dev
+
+      - name: Download all Test files
+        uses: actions/download-artifact@v4
+        with:
+          path: ./public
+          pattern: reports-runner-*
+          merge-multiple: true
+
+      - name: Display structure of downloaded files
+        run: ls -R ./public
+
+      - name: Install required packages
+        run: npm install axios adm-zip glob yargs
+
+      - name: Process previous run artifacts
+        if: inputs.previous_run_ids != ''
+        env:
+          GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+        run: |
+          IFS=',' read -ra RUN_IDS <<< "${{ inputs.previous_run_ids }}"
+          for run_id in "${RUN_IDS[@]}"
+          do
+          echo "Processing artifacts from run ID: $run_id"
+          node ./scripts/nodejs/process-artifacts.js --comparison-run-id $run_id
+          done
+
+      - name: Merge Visual Diff JSON
+        run: node ./scripts/nodejs/visual-diff-merge.js
+
+      - name: Compare Images
+        run: php ./scripts/php/image-compare.php
+
+      - name: Upload Final Report to Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-report
+          path: ./public
+          overwrite: true
+          retention-days: 1
+          if-no-files-found: error
+
+  upload-to-s3:
+    name: Upload Reports to S3
+    needs: generate-reports
+    if: ${{ always() && inputs.run_type == 'comparison' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all Test files
+        uses: actions/download-artifact@v4
+        with:
+          path: ./public
+          merge-multiple: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install aws-sdk
+
+      - name: Setup environment variables
+        run: |
+          echo "AWS_DEVSECOPS_ASSUME_ROLE=${{ env.AWS_DEVSECOPS_NONPROD_ASSUME_ROLE }}" >> $GITHUB_ENV
+          echo "AWS_ASSUME_ROLE=${{ env.AWS_NONPROD_ASSUME_ROLE }}" >> $GITHUB_ENV
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_DEVSECOPS_ASSUME_ROLE }}
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: false
+
+      - name: ASSUMING ROLE - CICD
+        env:
+          assume_role_arn: ${{env.AWS_NONPROD_ASSUME_ROLE}}
+        run: |
+          export $(printf "AWS_ACCESS_KEY_ID_1=%s AWS_SECRET_ACCESS_KEY_1=%s AWS_SESSION_TOKEN_1=%s" \
+          $(aws sts assume-role --role-arn $assume_role_arn --role-session-name MySessionName \
+          --query "Credentials.[AccessKeyId,SecretAccessKey,SessionToken]" --output text))
+          echo "::add-mask::$AWS_ACCESS_KEY_ID_1"
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID_1" >> $GITHUB_ENV
+          echo "::add-mask::$AWS_SECRET_ACCESS_KEY_1"
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY_1" >> $GITHUB_ENV
+          echo "::add-mask::$AWS_SESSION_TOKEN_1"
+          echo "AWS_SESSION_TOKEN=$AWS_SESSION_TOKEN_1" >> $GITHUB_ENV
+
+      - name: Generate unique folder name
+        id: folder-name
+        run: |
+          UNIQUE_NAME=${{ github.run_id }}
+          echo "name=$UNIQUE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload to S3
+        run: |
+          aws s3 cp ./public s3://${USER_S3_BUCKET_NAME}/${{ steps.folder-name.outputs.name }} --recursive
+          echo "S3_URL=s3://${USER_S3_BUCKET_NAME}/${{ steps.folder-name.outputs.name }}" >> $GITHUB_ENV
+        env:
+          USER_S3_BUCKET_NAME: ${{ env.USER_S3_BUCKET_NAME }}
+
+      - name: Display S3 URL
+        run: |
+          echo "Reports uploaded successfully to: ${{ env.S3_URL }}"
+          echo "Public URL: https://${USER_S3_BUCKET_NAME}.s3.${AWS_REGION}.amazonaws.com/${{ steps.folder-name.outputs.name }}/visual-diff/index.html"
+        env:
+          USER_S3_BUCKET_NAME: ${{ env.USER_S3_BUCKET_NAME }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+
+      # Artifacts set to automatically deleted by GitHub in 1 day.

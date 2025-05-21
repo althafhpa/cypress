@@ -1,0 +1,49 @@
+{
+  "name": "cypress-test",
+  "version": "1.0.0",
+  "cypress": "^13.17.0",
+  "main": "cypress.config.js",
+  "scripts": {
+    "install-dev": "npm install --include-dev",
+    "cypress-install": "npm install cypress --save-dev",
+    "postinstall": "patch-package"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "aws-sdk": "^2.1692.0",
+    "build": "^0.1.4",
+    "cypress-image-diff-html-report": "^2.2.0",
+    "cypress-image-diff-js": "^2.1.4",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "fs-extra": "^11.2.0",
+    "glob": "^10.4.5",
+    "hamming": "^0.0.2",
+    "imghash": "^0.0.9",
+    "jsonfile": "^6.1.0",
+    "leven": "^4.0.0",
+    "node-fetch": "^2.7.0",
+    "open": "^10.1.2",
+    "patch-package": "^8.0.0",
+    "run": "^1.5.0",
+    "socket.io": "^4.7.5",
+    "yargs": "^17.7.2"
+  },
+  "devDependencies": {
+    "@cypress-audit/lighthouse": "^1.4.2",
+    "concurrently": "^8.2.2",
+    "css-loader": "^7.1.2",
+    "cypress": "^13.17.0",
+    "file-loader": "^6.2.0",
+    "json-loader": "^0.5.7",
+    "ts-loader": "^9.5.1",
+    "webpack": "^5.91.0",
+    "webpack-cli": "^5.1.4",
+    "webpack-dev-server": "^5.0.4"
+  },
+  "engines": {
+    "node": "v18.20.6",
+    "electron": "27.3.10"
+  }
+}
