@@ -5,11 +5,11 @@ Visual Regression Testing using Cypress
   More Info https://www.cypress.io/
 
 
-![Screenshot of Visual Diff Report](./screenshots/screenshot-cypress-1.png "Visual Diff Report Example")
+![Screenshot of Cypress Visual Diff Report](./screenshots/screenshot-cypress-1.png "Cypress Visual Diff Report Example")
 
-![Screenshot of Visual Diff Report](./screenshots/screenshot-cypress-2.png "Visual Diff Report Example")
+![Screenshot of Cypress Visual Diff Report](./screenshots/screenshot-cypress-2.png "Cypress Visual Diff Report Example")
 
-![Screenshot of Visual Diff Report](./screenshots/screenshot-cypress-3.png "Visual Diff Report Example")
+![Screenshot of Cypress Visual Diff Report](./screenshots/screenshot-cypress-3.png "Cypress Visual Diff Report Example")
 
 **Overview:**
 
