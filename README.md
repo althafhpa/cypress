@@ -1,4 +1,4 @@
-Visual Regression Testing using Cypress
+**Visual Regression Testing using Cypress**
 
 * With Cypress (Testing Frameworks for Javascript), you can easily create tests for your modern web applications, 
 * debug them visually, and automatically run them in your continuous integration builds.
